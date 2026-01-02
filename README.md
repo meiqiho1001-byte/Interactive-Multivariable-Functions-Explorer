@@ -1,1 +1,1 @@
-# Interactive-Multivariable-Functions-Explorer
+# Interactive Multivariable Functions Explorer

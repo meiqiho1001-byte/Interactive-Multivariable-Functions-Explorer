@@ -3,204 +3,183 @@ import sympy as sp
 import numpy as np
 import plotly.graph_objects as go
 
-st.set_page_config(page_title="Multivariable Functions Explorer")
-st.title("📊 Interactive Multivariable Functions Explorer")
+# ---------------------------
+# Page Setup
+# ---------------------------
+st.set_page_config(page_title="Multivariable Calculus Explorer", layout="wide")
+st.markdown("""
+<style>
+.stApp { background-color: #111111; color: #FFFFFF; font-family: 'Segoe UI', sans-serif;}
+h1 {color:#00FFFF;}
+h2 {color:#00FFAA;}
+.stTextInput>div>div>input { color: black; background-color: #FFFFFF; }
+</style>
+""", unsafe_allow_html=True)
 
-st.write(
-    "This app helps you explore functions of several variables using interactive graphs. "
-    "You can rotate, zoom, and analyze how the surface behaves."
-)
+st.title("📊 Multivariable Calculus Explorer")
 
-# ---------------------------------------------------
-# Variable selection
-# ---------------------------------------------------
-var_type = st.selectbox(
-    "Select function type:",
-    ["Two variables: f(x, y)", "Three variables: f(x, y, z)"]
-)
+# ---------------------------
+# Variables & intervals
+# ---------------------------
+var_choice = st.selectbox("Number of variables:", ["2 variables (f(x,y))", "3 variables (f(x,y,z))"])
+if var_choice.startswith("2"):
+    var_symbols = sp.symbols("x y")
+else:
+    var_symbols = sp.symbols("x y z")
 
-# Define symbols
-x, y, z = sp.symbols("x y z")
+col1, col2 = st.columns(2)
+with col1:
+    x_min, x_max = st.number_input("x min", value=-5.0), st.number_input("x max", value=5.0)
+with col2:
+    y_min, y_max = st.number_input("y min", value=-5.0), st.number_input("y max", value=5.0)
 
-# ---------------------------------------------------
-# Function input
-# ---------------------------------------------------
-default_func = "sin(x) + cos(y)" if var_type.startswith("Two") else "x**2 + y**2 + z**2"
-func_input = st.text_input("Enter your function:", default_func)
+if var_choice.startswith("3"):
+    z_min, z_max = st.number_input("z min", value=-5.0), st.number_input("z max", value=5.0)
+    z0 = st.slider("Fix z value for 3D slice", min_value=float(z_min), max_value=float(z_max), value=0.0)
 
-# Allowed math functions
-allowed_funcs = {
-    "sin": sp.sin,
-    "cos": sp.cos,
-    "tan": sp.tan,
-    "exp": sp.exp,
-    "log": sp.log,
-    "sqrt": sp.sqrt
-}
+# ---------------------------
+# Function Input
+# ---------------------------
+st.subheader("📝 Enter Your Function (use ^ for powers)")
 
-# ---------------------------------------------------
-# Safe parsing with friendly error messages
-# ---------------------------------------------------
+# Session state for calculator keyboard
+if "func_str" not in st.session_state:
+    st.session_state.func_str = ""
+
+# Display current function
+st.text_input("Function:", key='func_str', value=st.session_state.func_str)
+
+# Calculator keyboard (like Desmos)
+buttons = ["x", "y", "z", "+", "-", "*", "/", "^", "(", ")", 
+           "sin(", "cos(", "tan(", "exp(", "log(", "sqrt(", "CLEAR"]
+cols = st.columns(len(buttons))
+for i, btn in enumerate(buttons):
+    if cols[i].button(btn):
+        if btn == "CLEAR":
+            st.session_state.func_str = ""
+        else:
+            st.session_state.func_str += btn
+
+func_input = st.session_state.func_str.replace("^", "**")
+
+# Allowed functions
+allowed_funcs = {"sin": sp.sin, "cos": sp.cos, "tan": sp.tan,
+                 "exp": sp.exp, "log": sp.log, "sqrt": sp.sqrt}
+
+# ---------------------------
+# Parse function
+# ---------------------------
 try:
     f = sp.sympify(func_input, locals=allowed_funcs)
 except Exception as e:
-    st.error("❌ Invalid function input.")
-    st.markdown(
-        """
-        **Please check the following:**
-        - Use `**` for powers (example: `x**2`)
-        - Use `sin(x)`, not `sin x`
-        - Use `log(x)` for natural logarithm
-        - Allowed variables: x, y, z
-        
-        **Examples of valid inputs:**
-        - `sin(x) + cos(y)`
-        - `x**2 + y**2`
-        - `exp(x*y)`
-        - `x**2 + y**2 + z**2`
-        """
-    )
+    st.error(f"❌ Invalid function. Error: {e}")
     st.stop()
 
-# ---------------------------------------------------
-# Topic selection
-# ---------------------------------------------------
-topic = st.selectbox(
-    "Choose a topic:",
-    [
-        "Meaning & Visualization",
-        "Partial Derivatives",
-        "Gradient & Steepest Ascent",
-        "Differentials"
-    ]
-)
+# ---------------------------
+# Grid for plotting
+# ---------------------------
+grid_vals_x = np.linspace(x_min, x_max, 50)
+grid_vals_y = np.linspace(y_min, y_max, 50)
+X, Y = np.meshgrid(grid_vals_x, grid_vals_y)
 
-# ---------------------------------------------------
-# Domain grid
-# ---------------------------------------------------
-vals = np.linspace(-5, 5, 60)
-X, Y = np.meshgrid(vals, vals)
-
-# ---------------------------------------------------
-# Handle 3-variable slicing
-# ---------------------------------------------------
-if var_type.startswith("Three"):
-    z0 = st.slider("Fix z value (slice):", -5.0, 5.0, 0.0)
-    f_eval = f.subs(z, z0)
+if var_choice.startswith("3"):
+    f_eval = f.subs('z', z0)
 else:
     f_eval = f
 
-# Convert to numeric function
 try:
-    f_lamb = sp.lambdify((x, y), f_eval, "numpy")
+    f_lamb = sp.lambdify(var_symbols[:2], f_eval, "numpy")
     Z = f_lamb(X, Y)
-except:
-    st.error(
-        "⚠️ The function cannot be evaluated on the selected domain.\n\n"
-        "This may happen due to division by zero or invalid values (e.g. log(x) for x ≤ 0)."
-    )
+except Exception as e:
+    st.error(f"⚠️ Cannot evaluate function on this domain: {e}")
     st.stop()
 
-# ---------------------------------------------------
-# Plot function
-# ---------------------------------------------------
-def plot_surface(X, Y, Z):
+# ---------------------------
+# Plotting function
+# ---------------------------
+def plot_surface(X, Y, Z, title="z = f(x,y)"):
     fig = go.Figure(data=[go.Surface(x=X, y=Y, z=Z, colorscale="Viridis")])
     fig.update_layout(
+        title=title,
+        paper_bgcolor='#111111',
+        plot_bgcolor='#111111',
+        font=dict(color='white'),
         scene=dict(
-            xaxis_title="x",
-            yaxis_title="y",
-            zaxis_title="f(x,y)"
+            xaxis=dict(title='x', backgroundcolor="#111111", gridcolor="gray", color="white"),
+            yaxis=dict(title='y', backgroundcolor="#111111", gridcolor="gray", color="white"),
+            zaxis=dict(title='z', backgroundcolor="#111111", gridcolor="gray", color="white")
         ),
+        autosize=True,
         margin=dict(l=0, r=0, b=0, t=40)
     )
     return fig
 
-# ---------------------------------------------------
-# Explanation based on surface
-# ---------------------------------------------------
-def surface_explanation(Z):
-    if np.nanmin(Z) >= 0:
-        return "The surface lies above the xy-plane, suggesting a minimum point."
-    elif np.nanmax(Z) <= 0:
-        return "The surface lies below the xy-plane, suggesting a maximum point."
-    else:
-        return (
-            "The surface has both positive and negative values. "
-            "This indicates varying curvature or a possible saddle point."
-        )
+# ---------------------------
+# Calculus quantities
+# ---------------------------
+partials = [sp.diff(f, s) for s in var_symbols[:2]]
+diff_text = " + ".join([f"({p})d{s}" for p, s in zip(partials, var_symbols[:2])])
+sample_point = {var_symbols[0]: 1, var_symbols[1]: 1}
+if var_choice.startswith("3"):
+    sample_point[var_symbols[2]] = z0
 
-# ---------------------------------------------------
-# 1. Visualization
-# ---------------------------------------------------
-if topic == "Meaning & Visualization":
-    st.subheader("🔹 Meaning & Visualization")
+# ---------------------------
+# Show all features together
+# ---------------------------
+st.subheader("🔹 Surface Plot")
+st.plotly_chart(plot_surface(X, Y, Z, title="Surface Plot: z=f(x,y)"), use_container_width=True)
 
-    st.write(
-        "The graph represents the surface **z = f(x, y)**. "
-        "Rotate and zoom the graph to understand how the function behaves."
-    )
+# Meaning
+st.subheader("🔹 Meaning of the Function")
+z_val = f.subs(sample_point)
+st.markdown(f"""
+- Function: `{func_input}`  
+- At point (x=1, y=1): z = `{z_val}`  
+- Each (x,y) gives height z forming a 3D surface
+""")
 
-    st.plotly_chart(plot_surface(X, Y, Z), use_container_width=True)
-    st.info(surface_explanation(Z))
+# Partial Derivatives
+st.subheader("🔹 Partial Derivatives")
+for s, p in zip(var_symbols[:2], partials):
+    st.markdown(f"∂f/∂{s} = `{p}` → At (1,1): {p.subs(sample_point)}")
 
-# ---------------------------------------------------
-# 2. Partial Derivatives
-# ---------------------------------------------------
-elif topic == "Partial Derivatives":
-    st.subheader("🔹 Partial Derivatives")
+# Gradient
+st.subheader("🔹 Gradient")
+grad_val = [p.subs(sample_point) for p in partials]
+st.markdown(f"Gradient vector at (1,1): {grad_val}")
 
-    fx = sp.diff(f_eval, x)
-    fy = sp.diff(f_eval, y)
+# Differentials
+st.subheader("🔹 Differentials")
+delta_x, delta_y = 0.1, 0.1
+df_val = sum([p.subs(sample_point)*dx for p, dx in zip(partials, [delta_x, delta_y])])
+st.markdown(f"df ≈ {diff_text} → At (1,1) with dx={delta_x}, dy={delta_y}: df ≈ {df_val}")
 
-    st.latex(r"\frac{\partial f}{\partial x} = " + sp.latex(fx))
-    st.latex(r"\frac{\partial f}{\partial y} = " + sp.latex(fy))
+# Critical Points (only for 2-variable)
+if var_choice.startswith("2"):
+    st.subheader("🔹 Critical Points")
+    x, y = var_symbols
+    fx = sp.diff(f, x)
+    fy = sp.diff(f, y)
+    try:
+        crit_points = sp.solve([fx, fy], (x, y), dict=True)
+        if crit_points:
+            st.write(f"Found {len(crit_points)} critical point(s):")
+            for pt in crit_points:
+                fxx = sp.diff(fx, x)
+                fyy = sp.diff(fy, y)
+                fxy = sp.diff(fx, y)
+                H = fxx*fyy - fxy**2
+                H_val = H.subs(pt)
+                f_val = f.subs(pt)
+                if H_val > 0:
+                    kind = "Local Min" if fxx.subs(pt) > 0 else "Local Max"
+                elif H_val < 0:
+                    kind = "Saddle Point"
+                else:
+                    kind = "Cannot Determine"
+                st.write(f"- Point {pt}: {kind}, f={f_val}")
+        else:
+            st.write("No critical points found.")
+    except Exception as e:
+        st.write(f"Could not compute critical points: {e}")
 
-    x0 = st.number_input("x₀:", value=1.0)
-    y0 = st.number_input("y₀:", value=1.0)
-
-    st.write(
-        "Partial derivatives describe how the surface changes "
-        "when one variable changes while the other is held constant."
-    )
-
-    st.plotly_chart(plot_surface(X, Y, Z), use_container_width=True)
-
-# ---------------------------------------------------
-# 3. Gradient
-# ---------------------------------------------------
-elif topic == "Gradient & Steepest Ascent":
-    st.subheader("🔹 Gradient & Steepest Ascent")
-
-    fx = sp.diff(f_eval, x)
-    fy = sp.diff(f_eval, y)
-
-    st.latex(r"\nabla f = \left(" + sp.latex(fx) + ", " + sp.latex(fy) + r"\right)")
-
-    st.write(
-        "The gradient vector points in the direction of steepest ascent "
-        "on the surface."
-    )
-
-    st.plotly_chart(plot_surface(X, Y, Z), use_container_width=True)
-
-# ---------------------------------------------------
-# 4. Differentials
-# ---------------------------------------------------
-elif topic == "Differentials":
-    st.subheader("🔹 Differentials")
-
-    fx = sp.diff(f_eval, x)
-    fy = sp.diff(f_eval, y)
-
-    dx = st.number_input("dx:", value=0.1)
-    dy = st.number_input("dy:", value=0.1)
-
-    st.latex(r"df = f_x dx + f_y dy")
-
-    st.write(
-        "The differential provides a linear approximation of how the "
-        "function value changes near a point."
-    )
-
-    st.plotly_chart(plot_surface(X, Y, Z), use_container_width=True)
